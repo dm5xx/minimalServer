@@ -303,12 +303,12 @@ const char* CONFIG_FILE = "/config.json";
 
 //define your default values here, if there are different values in config.json, they are overwritten.
 //length should be max size + 1
-char mqtt_server  [40]  = "mqtt-server.ddns.net";
-char mqtt_port    [6]   = "1883";
-char blynk_token  [33]  = "YOUR_BLYNK_TOKEN";
+char FTPEnabled  [2]  = "1";
 
 //flag for saving data
 bool shouldSaveConfig = false;
+
+bool FTPEqualsEnabled = 0; // haha 0 ,means On!
 
 ///////////////////////////////////////////
 // New in v1.4.0
@@ -443,6 +443,8 @@ uint8_t connectMultiWiFi()
   return status;
 }
 
+bool shouldSettingsReset = false;
+
 //callback notifying us of the need to save config
 void saveConfigCallback ()
 {
@@ -511,6 +513,19 @@ void check_status()
     // Toggle LED at LED_INTERVAL = 2s
     toggleLED();
     LEDstatus_timeout = currentMillis + LED_INTERVAL;
+
+    if(shouldSettingsReset)
+    {
+            
+            ESPAsync_WiFiManager ESPAsync_wifiManager(&webServer, &dnsServer, "ConfigOnSwitch");
+            Serial.println(F("ESP rest!"));
+            ESPAsync_wifiManager.resetSettings();
+            WiFi.disconnect();
+            delay(1000);
+            Serial.println(F("ESP restarting..."));
+        Serial.println(F("I do reset.."));
+        ESP.reset();
+    }
   }
 
   // Print hearbeat every HEARTBEAT_INTERVAL (10) seconds.
@@ -650,9 +665,7 @@ void setup()
         {
           Serial.println("\nParsed json");
 
-          strcpy(mqtt_server, json["mqtt_server"]);
-          strcpy(mqtt_port,   json["mqtt_port"]);
-          strcpy(blynk_token, json["blynk_token"]);
+          strcpy(FTPEnabled, json["FTPEnabled"]);
         }  
         else 
         {
@@ -667,16 +680,12 @@ void setup()
   }
   
   //end read
-  Serial.println(String("MQTT Server = ") + mqtt_server);
-  Serial.println(String("MQTT Port   = ") + mqtt_port);
-  Serial.println(String("Blynk Token = ") + blynk_token);
+  Serial.println(String("FTPEnabled = ") + FTPEnabled);
   
   // The extra parameters to be configured (can be either global or just in the setup)
   // After connecting, parameter.getValue() will get you the configured value
   // id/name placeholder/prompt default length
-  ESPAsync_WMParameter custom_mqtt_server ("server",  "mqtt server",  mqtt_server,  40);
-  ESPAsync_WMParameter custom_mqtt_port   ("port",    "mqtt port",    mqtt_port,    5);
-  ESPAsync_WMParameter custom_blynk_token ("blynk",   "blynk token",  blynk_token,  34);
+  ESPAsync_WMParameter custom_FTPEnabled ("FTPEnabled",  "FTPEnabled",  FTPEnabled,  3);
 
   unsigned long startedAt = millis();
 
@@ -696,12 +705,10 @@ void setup()
   ESPAsync_wifiManager.setSaveConfigCallback(saveConfigCallback);
 
   //add all your parameters here
-  ESPAsync_wifiManager.addParameter(&custom_mqtt_server);
-  ESPAsync_wifiManager.addParameter(&custom_mqtt_port);
-  ESPAsync_wifiManager.addParameter(&custom_blynk_token);
+  ESPAsync_wifiManager.addParameter(&custom_FTPEnabled);
 
   //reset settings - for testing
-  ESPAsync_wifiManager.resetSettings();
+  //ESPAsync_wifiManager.resetSettings();
 
   ESPAsync_wifiManager.setDebugOutput(true);
 
@@ -848,9 +855,7 @@ void setup()
     Serial.println(ESPAsync_wifiManager.getStatus(WiFi.status()));
 
   //read updated parameters
-  strcpy(mqtt_server, custom_mqtt_server.getValue());
-  strcpy(mqtt_port, custom_mqtt_port.getValue());
-  strcpy(blynk_token, custom_blynk_token.getValue());
+  strcpy(FTPEnabled, custom_FTPEnabled.getValue());
 
   //save the custom parameters to FS
   if (shouldSaveConfig) 
@@ -864,9 +869,7 @@ void setup()
     JsonObject& json = jsonBuffer.createObject();
 #endif
     
-    json["mqtt_server"] = mqtt_server;
-    json["mqtt_port"]   = mqtt_port;
-    json["blynk_token"] = blynk_token;
+    json["FTPEnabled"] = FTPEnabled;
 
     File configFile     = FileFS.open(CONFIG_FILE, "w");
     
@@ -897,7 +900,12 @@ void setup()
   Serial.println(WiFi.subnetMask());
 
   //keep LED off
-  digitalWrite(LED_BUILTIN, LED_OFF);
+digitalWrite(LED_BUILTIN, LED_OFF);
+
+  FTPEqualsEnabled = strcmp(FTPEnabled, "1");
+  
+if(FTPEqualsEnabled == 0)
+{
 
   configTime (gmtOffset_sec, daylightOffset_sec, ntpServer);
   while (!getLocalTime (&timeinfo)) {
@@ -914,6 +922,12 @@ void setup()
   else {
     Serial.println ("File system could not be opened; ftp server will not work");
   }
+}
+
+  webServer.on("/XSettingsReset/DM5XX", HTTP_GET, [] (AsyncWebServerRequest *request) {
+    request->send(200, "text/plain", "{ \"Settingsrest\": \"OK\"}");
+    shouldSettingsReset = true;
+  });
 
   webServer.serveStatic("/", FileFS, "/");
   webServer.begin();
@@ -921,6 +935,8 @@ void setup()
 
 void loop()
 {  
-  check_status();
-  ftpSrv.handleFTP (FileFS);        //make sure in loop you call handleFTP()!
+    check_status();
+    
+    if(FTPEqualsEnabled == 0)
+        ftpSrv.handleFTP (FileFS);        //make sure in loop you call handleFTP()!
 }
